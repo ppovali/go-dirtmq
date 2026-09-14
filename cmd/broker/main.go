@@ -48,7 +48,7 @@ func handleConnection(conn net.Conn) {
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				log.Println("No data received for 5 seconds")
-				break
+				continue
 			}
 			if err != io.EOF {
 				log.Println("Error reading message:", err)

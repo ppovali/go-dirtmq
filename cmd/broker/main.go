@@ -41,6 +41,8 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 	defer log.Println("Service disconnect", conn.RemoteAddr())
 	defer conn.Close()
 
+	reader := bufio.NewReader(conn)
+
 	for {
 		err := conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		if err != nil {
@@ -48,7 +50,7 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 			return
 		}
 
-		packet, err := protocol.DecodePacket(bufio.NewReader(conn))
+		packet, err := protocol.DecodePacket(reader)
 
 		if err != nil {
 
@@ -68,14 +70,23 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 		log.Printf("Received packet: OpCode=%d | Topic=%s | Bytes=%d\n",
 			packet.Header.Operation, packet.Topic, len(packet.Payload))
 
-		if packet.Header.Operation == protocol.OpPublish {
-			log.Printf("[PUBLISH] saving message to topic: %s", packet.Topic)
-
+		switch packet.Header.Operation {
+		case protocol.OpPublish:
 			err := engine.Publish(packet.Topic, packet.Payload)
 			if err != nil {
 				log.Println("Storage engine save error:", err)
 				return
 			}
+			log.Printf("[PUBLISH] saving message to topic: %s", packet.Topic)
+			engine.Broadcast(packet.Topic, packet.Payload)
+
+		case protocol.OpSubscribe:
+			err := engine.RegisterSubscriber(packet.Topic, conn)
+			if err != nil {
+				log.Println("Storage subscribe error: ", err)
+				return
+			}
+			log.Printf("[SUBSCRIBE] microservice '%s' subscribed to topic: %s", conn.RemoteAddr(), packet.Topic)
 		}
 	}
 }

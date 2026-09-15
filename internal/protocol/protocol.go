@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"sync"
 )
 
 // ProtocolVersion is the version of the protocol used for communication between clients and the broker.
@@ -34,6 +35,12 @@ type Packet struct {
 	Header  Header
 	Topic   string
 	Payload []byte
+}
+
+var BufferPool = &sync.Pool{
+	New: func() any {
+		return make([]byte, 4096)
+	},
 }
 
 func DecodeHeader(r io.Reader) (Header, error) {
@@ -90,4 +97,28 @@ func DecodePacket(r io.Reader) (*Packet, error) {
 		Topic:   string(topicBuf),
 		Payload: payloadBuf,
 	}, nil
+}
+
+func SerializePacket(packet *Packet) ([]byte, error) {
+	if packet == nil {
+		return nil, errors.New("packet is nil")
+	}
+
+	totalLength := int(HeaderSize) + len(packet.Topic) + len(packet.Payload)
+
+	if totalLength > 4096 {
+		return nil, errors.New("packet size exceeds maximum allowed size")
+	}
+
+	rawBuf := BufferPool.Get().([]byte)
+
+	rawBuf[0] = ProtocolVersion
+	rawBuf[1] = packet.Header.Operation
+	binary.BigEndian.PutUint16(rawBuf[2:4], uint16(len(packet.Topic)))
+	binary.BigEndian.PutUint32(rawBuf[4:8], uint32(len(packet.Payload)))
+
+	copy(rawBuf[8:], []byte(packet.Topic))
+	copy(rawBuf[8+len(packet.Topic):], packet.Payload)
+
+	return rawBuf[:totalLength], nil
 }

@@ -59,7 +59,7 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 				continue
 			}
 
-			//check if the client has closed the connection
+			// Check if the client has closed the connection
 			if err != io.EOF {
 				log.Println("Error reading message:", err)
 			}

@@ -6,6 +6,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/ppovali/go-dirtmq/internal/protocol"
 )
 
 type Engine struct {
@@ -67,12 +69,27 @@ func (e *Engine) Broadcast(topic string, payload []byte) {
 		return
 	}
 
+	p := &protocol.Packet{
+		Header: protocol.Header{
+			Version:   protocol.ProtocolVersion,
+			Operation: protocol.OpPublish,
+		},
+		Topic:   topic,
+		Payload: payload,
+	}
+
 	e.mu.RLock()
 	conns, exists := e.subscribers[topic]
 	e.mu.RUnlock()
 
 	if !exists || len(conns) == 0 {
-		return //no one is listening
+		return // No one is listening
+	}
+
+	binaryFrame, err := protocol.SerializePacket(p)
+	if err != nil {
+		log.Printf("Failed to serialize packet for topic [%s]: %v", topic, err)
+		return
 	}
 
 	log.Printf("Broadcasting message to %d subscribers on topic [%s]", len(conns), topic)
@@ -80,10 +97,47 @@ func (e *Engine) Broadcast(topic string, payload []byte) {
 	for _, conn := range conns {
 		_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 
-		_, err := conn.Write(payload)
+		_, err := conn.Write(binaryFrame)
 		if err != nil {
 			log.Printf("Failed to write subscriber %s: %v", conn.RemoteAddr(), err)
+			e.RemoveSubscriber(topic, conn)
 		}
 	}
 
+	protocol.BufferPool.Put(binaryFrame[:cap(binaryFrame)])
+}
+
+func (e *Engine) RemoveSubscriber(topic string, conn net.Conn) error {
+	if topic == "" || conn == nil {
+		return errors.New("Invalid topic or connection instance")
+	}
+
+	e.mu.RLock()
+	subscribers, exists := e.subscribers[topic]
+	e.mu.RUnlock()
+
+	if !exists {
+		return errors.New("no subscribers found for the topic")
+	}
+
+	targetIndex := -1
+	for i, subscriber := range subscribers {
+		if subscriber == conn {
+			targetIndex = i
+			break
+		}
+	}
+
+	if targetIndex == -1 {
+		return nil
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if targetIndex < len(e.subscribers[topic]) && e.subscribers[topic][targetIndex] == conn {
+		e.subscribers[topic] = append(e.subscribers[topic][:targetIndex], e.subscribers[topic][targetIndex+1:]...)
+	}
+
+	return nil
 }

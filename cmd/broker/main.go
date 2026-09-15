@@ -6,6 +6,9 @@ import (
 	"log"
 	"net"
 	"time"
+
+	"github.com/ppovali/go-dirtmq/internal/protocol"
+	"github.com/ppovali/go-dirtmq/internal/storage"
 )
 
 func main() {
@@ -17,6 +20,8 @@ func main() {
 
 	defer listener.Close()
 
+	brokerEngine := storage.NewEngine()
+
 	for {
 		conn, err := listener.Accept()
 
@@ -25,18 +30,17 @@ func main() {
 			continue
 		}
 
-		go handleConnection(conn)
+		go handleConnection(conn, brokerEngine)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn, engine *storage.Engine) {
 
-	log.Println("User active")
+	log.Println("Service active:", conn.RemoteAddr())
 
-	defer log.Println("User disconnect")
+	defer log.Println("Service disconnect", conn.RemoteAddr())
 	defer conn.Close()
 
-	reader := bufio.NewReader(conn)
 	for {
 		err := conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		if err != nil {
@@ -44,17 +48,34 @@ func handleConnection(conn net.Conn) {
 			return
 		}
 
-		message, err := reader.ReadBytes('\n')
+		packet, err := protocol.DecodePacket(bufio.NewReader(conn))
+
 		if err != nil {
+
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				log.Println("No data received for 5 seconds")
 				continue
 			}
+
+			//check if the client has closed the connection
 			if err != io.EOF {
 				log.Println("Error reading message:", err)
 			}
+
 			return
 		}
-		log.Printf("Received message: %s", message)
+
+		log.Printf("Received packet: OpCode=%d | Topic=%s | Bytes=%d\n",
+			packet.Header.Operation, packet.Topic, len(packet.Payload))
+
+		if packet.Header.Operation == protocol.OpPublish {
+			log.Printf("[PUBLISH] saving message to topic: %s", packet.Topic)
+
+			err := engine.Publish(packet.Topic, packet.Payload)
+			if err != nil {
+				log.Println("Storage engine save error:", err)
+				return
+			}
+		}
 	}
 }

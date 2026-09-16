@@ -38,8 +38,17 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 
 	log.Println("Service active:", conn.RemoteAddr())
 
-	defer log.Println("Service disconnect", conn.RemoteAddr())
-	defer conn.Close()
+	var subscribedTopics []string
+
+	defer func() {
+		log.Println("Service disconnect", conn.RemoteAddr())
+		conn.Close()
+
+		for _, topic := range subscribedTopics {
+			log.Printf("Removing subscriber %s from topic [%s]", conn.RemoteAddr(), topic)
+			engine.RemoveSubscriber(topic, conn)
+		}
+	}()
 
 	reader := bufio.NewReader(conn)
 
@@ -55,7 +64,7 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 		if err != nil {
 
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				log.Println("No data received for 5 seconds")
+				log.Printf("No data received for 5 seconds, client: %s", conn.RemoteAddr())
 				continue
 			}
 
@@ -86,6 +95,7 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 				log.Println("Storage subscribe error: ", err)
 				return
 			}
+			subscribedTopics = append(subscribedTopics, packet.Topic)
 			log.Printf("[SUBSCRIBE] microservice '%s' subscribed to topic: %s", conn.RemoteAddr(), packet.Topic)
 		}
 	}

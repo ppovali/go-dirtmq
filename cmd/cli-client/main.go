@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
-	"time"
+
+	"github.com/ppovali/go-dirtmq/internal/protocol"
 )
 
 func main() {
@@ -28,13 +30,19 @@ func main() {
 	_, _ = conn.Write(topicBytes)
 
 	log.Printf("Subscriber CLI emulator activated on topic [%s]. Standing by for live events...", topic)
-	buf := make([]byte, 1024)
+
+	reader := bufio.NewReader(conn)
 	for {
-		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-		n, err := conn.Read(buf)
+		packet, err := protocol.DecodePacket(reader)
 		if err != nil {
 			log.Fatalf("Disconnected from broker stream: %v", err)
 		}
-		fmt.Printf("[BROADCAST RECV]: %s\n", string(buf[:n]))
+
+		if packet.Header.Operation == protocol.OpSend {
+			fmt.Printf("[BROADCAST RECV] Topic: %s | Payload Size: %d bytes", packet.Topic, len(packet.Payload))
+			fmt.Printf("\nPayload: %s\n", string(packet.Payload))
+		} else {
+			log.Printf("Received unexpected packet operation: %d", packet.Header.Operation)
+		}
 	}
 }

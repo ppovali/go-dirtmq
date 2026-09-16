@@ -16,7 +16,7 @@ func TestEngine_PublishAndGet(t *testing.T) {
 		t.Fatalf("Failed to publish message: %v", err)
 	}
 
-	messages, err := engine.GetMessage(topic)
+	messages, err := engine.GetMessages(topic)
 	if err != nil {
 		t.Fatalf("Failed to rerieve message: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestEngine_ConcurrentPublish(t *testing.T) {
 
 	wg.Wait()
 
-	messages, _ := engine.GetMessage(topic)
+	messages, _ := engine.GetMessages(topic)
 	if len(messages) != workers {
 		t.Errorf("Expecred %d messages in memory, got: %d", workers, len(messages))
 	}

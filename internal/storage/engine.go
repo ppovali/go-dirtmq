@@ -37,7 +37,7 @@ func (e *Engine) Publish(topic string, payload []byte) error {
 	return nil
 }
 
-func (e *Engine) GetMessage(topic string) ([][]byte, error) {
+func (e *Engine) GetMessages(topic string) ([][]byte, error) {
 	if topic == "" {
 		return nil, errors.New("topic name cannot be empty")
 	}
@@ -45,9 +45,9 @@ func (e *Engine) GetMessage(topic string) ([][]byte, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	message := e.topics[topic]
+	messages := e.topics[topic]
 
-	return message, nil
+	return messages, nil
 }
 
 func (e *Engine) RegisterSubscriber(topic string, conn net.Conn) error {
@@ -72,7 +72,7 @@ func (e *Engine) Broadcast(topic string, payload []byte) {
 	p := &protocol.Packet{
 		Header: protocol.Header{
 			Version:   protocol.ProtocolVersion,
-			Operation: protocol.OpPublish,
+			Operation: protocol.OpSend,
 		},
 		Topic:   topic,
 		Payload: payload,

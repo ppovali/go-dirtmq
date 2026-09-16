@@ -13,6 +13,7 @@ const ProtocolVersion byte = 1
 const (
 	OpPublish   byte = 1
 	OpSubscribe byte = 2
+	OpSend      byte = 3
 )
 
 const HeaderSize byte = 1 + 1 + 2 + 4 // Version (1 byte) + Operation (1 byte) + TopicLength (2 bytes) + PayloadLength (4 bytes)

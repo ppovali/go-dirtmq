@@ -1,0 +1,12 @@
+*.exe
+*-bin
+bin/
+
+.git
+.gitignore
+
+.vscode/
+
+.local/
+*.out
+*.log

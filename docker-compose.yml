@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  broker-server:
+    build:
+      context: .
+      target: broker
+    ports:
+      - "8080:8080"
+    networks:
+      - dirtmq-net
+  
+  subscriber-alpha:
+    build:
+      context: .
+      target: client
+    depends_on:
+      - broker-server
+    environment:
+      - DIRTMQ_BROKER_ADDR=broker-server:8080
+    networks:
+      - dirtmq-net
+    
+  subscriber-beta:
+    build:
+      context: .
+      target: client
+    depends_on:
+      - broker-server
+    environment:
+      - DIRTMQ_BROKER_ADDR=broker-server:8080
+    networks:
+      - dirtmq-net
+
+networks:
+  dirtmq-net:
+    driver: bridge

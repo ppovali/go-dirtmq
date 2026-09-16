@@ -5,12 +5,20 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 
 	"github.com/ppovali/go-dirtmq/internal/protocol"
 )
 
 func main() {
-	conn, err := net.Dial("tcp", "localhost:8080")
+	brokerAddr := os.Getenv("DIRTMQ_BROKER_ADDR")
+	if brokerAddr == "" {
+		brokerAddr = "localhost:8080"
+	}
+
+	log.Printf("Connecting to go-DirtMQ cluster endpoint at [%s]", brokerAddr)
+
+	conn, err := net.Dial("tcp", brokerAddr)
 	if err != nil {
 		log.Fatalf("Failed to connect to broker: %v", err)
 	}

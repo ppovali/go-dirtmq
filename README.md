@@ -34,7 +34,7 @@ docker compose up --build
 
 ---
 
-## 🗺️ Engineering Roadmap (Future Milestones)
+## Engineering Roadmap (Future Milestones)
 
 *   [ ] Implement a Write-Ahead Log (WAL) for persistent disk storage.
 *   [ ] Integrate a Graceful Shutdown channel loop to flush active socket connections safely.

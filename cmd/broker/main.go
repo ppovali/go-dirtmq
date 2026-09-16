@@ -41,7 +41,7 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 	var subscribedTopics []string
 
 	defer func() {
-		log.Println("Service disconnect", conn.RemoteAddr())
+		log.Println("Service disconnect: ", conn.RemoteAddr())
 		conn.Close()
 
 		for _, topic := range subscribedTopics {

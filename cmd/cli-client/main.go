@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
@@ -18,16 +17,23 @@ func main() {
 	defer conn.Close()
 
 	topic := "orders"
-	topicBytes := []byte(topic)
+	packet := &protocol.Packet{
+		Header: protocol.Header{
+			Version:   1,
+			Operation: 2,
+		},
+		Topic: topic,
+	}
 
-	header := make([]byte, 8)
-	header[0] = 1
-	header[1] = 2 // OpCode (OpSubscribe)
-	binary.BigEndian.PutUint16(header[2:4], uint16(len(topicBytes)))
-	binary.BigEndian.PutUint32(header[4:8], 0)
+	binaryFrame, err := protocol.SerializePacket(packet)
+	if err != nil {
+		log.Fatalf("Failed to serialize packet: %v", err)
+	}
 
-	_, _ = conn.Write(header)
-	_, _ = conn.Write(topicBytes)
+	_, err = conn.Write(binaryFrame)
+	if err != nil {
+		log.Fatalf("Failed to stream binary frame to socket: %v", err)
+	}
 
 	log.Printf("Subscriber CLI emulator activated on topic [%s]. Standing by for live events...", topic)
 

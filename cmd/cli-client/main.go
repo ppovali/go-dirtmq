@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bufio"
-	"fmt"
 	"log"
-	"net"
 	"os"
 
-	"github.com/ppovali/go-dirtmq/internal/protocol"
+	"github.com/ppovali/go-dirtmq/pkg/client"
 )
 
 func main() {
@@ -16,47 +13,19 @@ func main() {
 		brokerAddr = "localhost:8080"
 	}
 
-	log.Printf("Connecting to go-DirtMQ cluster endpoint at [%s]", brokerAddr)
-
-	conn, err := net.Dial("tcp", brokerAddr)
+	client, err := client.Connect(brokerAddr)
 	if err != nil {
-		log.Fatalf("Failed to connect to broker: %v", err)
+		log.Fatalf("Failed to connect to broker %s: %v", brokerAddr, err)
 	}
-	defer conn.Close()
 
 	topic := "orders"
-	packet := &protocol.Packet{
-		Header: protocol.Header{
-			Version:   1,
-			Operation: 2,
-		},
-		Topic: topic,
-	}
-
-	binaryFrame, err := protocol.SerializePacket(packet)
+	messages, err := client.Subscribe(topic)
 	if err != nil {
-		log.Fatalf("Failed to serialize packet: %v", err)
+		log.Fatalf("Failed to subscribe topic [%s]: %v", topic, err)
 	}
 
-	_, err = conn.Write(binaryFrame)
-	if err != nil {
-		log.Fatalf("Failed to stream binary frame to socket: %v", err)
-	}
-
-	log.Printf("Subscriber CLI emulator activated on topic [%s]. Standing by for live events...", topic)
-
-	reader := bufio.NewReader(conn)
-	for {
-		packet, err := protocol.DecodePacket(reader)
-		if err != nil {
-			log.Fatalf("Disconnected from broker stream: %v", err)
-		}
-
-		if packet.Header.Operation == protocol.OpSend {
-			fmt.Printf("[BROADCAST RECV] Topic: %s | Payload Size: %d bytes", packet.Topic, len(packet.Payload))
-			fmt.Printf("\nPayload: %s\n", string(packet.Payload))
-		} else {
-			log.Printf("Received unexpected packet operation: %d", packet.Header.Operation)
-		}
+	for packet := range messages {
+		payload := string(packet.Payload)
+		log.Printf("Recieved a new payload: %s", payload)
 	}
 }

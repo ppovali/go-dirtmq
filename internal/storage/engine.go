@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/ppovali/go-dirtmq/internal/protocol"
 )
@@ -13,14 +12,19 @@ import (
 type Engine struct {
 	mu          sync.RWMutex
 	topics      map[string][][]byte
-	subscribers map[string][]net.Conn
+	subscribers map[string][]*Subscriber
+}
+
+type Subscriber struct {
+	conn  net.Conn
+	queue chan []byte
 }
 
 func NewEngine() *Engine {
 	return &Engine{
 		topics: make(map[string][][]byte),
 
-		subscribers: make(map[string][]net.Conn),
+		subscribers: make(map[string][]*Subscriber),
 	}
 }
 
@@ -58,8 +62,20 @@ func (e *Engine) RegisterSubscriber(topic string, conn net.Conn) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.subscribers[topic] = append(e.subscribers[topic], conn)
+	sub := &Subscriber{
+		conn:  conn,
+		queue: make(chan []byte, 1000),
+	}
+	e.subscribers[topic] = append(e.subscribers[topic], sub)
 
+	go func(s *Subscriber) {
+		for frame := range s.queue {
+			_, err := s.conn.Write(frame)
+			if err != nil {
+				return
+			}
+		}
+	}(sub)
 	return nil
 }
 
@@ -79,10 +95,10 @@ func (e *Engine) Broadcast(topic string, payload []byte) {
 	}
 
 	e.mu.RLock()
-	conns, exists := e.subscribers[topic]
+	subs, exists := e.subscribers[topic]
 	e.mu.RUnlock()
 
-	if !exists || len(conns) == 0 {
+	if !exists || len(subs) == 0 {
 		return // No one is listening
 	}
 
@@ -92,15 +108,16 @@ func (e *Engine) Broadcast(topic string, payload []byte) {
 		return
 	}
 
-	log.Printf("Broadcasting message to %d subscribers on topic [%s]", len(conns), topic)
+	log.Printf("Broadcasting message to %d subscribers on topic [%s]", len(subs), topic)
 
-	for _, conn := range conns {
-		_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	for _, sub := range subs {
+		frameCopy := make([]byte, len(binaryFrame))
+		copy(frameCopy, binaryFrame)
 
-		_, err := conn.Write(binaryFrame)
-		if err != nil {
-			log.Printf("Failed to write subscriber %s: %v", conn.RemoteAddr(), err)
-			e.RemoveSubscriber(topic, conn)
+		select {
+		case sub.queue <- frameCopy:
+
+		default:
 		}
 	}
 
@@ -122,7 +139,7 @@ func (e *Engine) RemoveSubscriber(topic string, conn net.Conn) error {
 
 	targetIndex := -1
 	for i, subscriber := range subscribers {
-		if subscriber == conn {
+		if subscriber.conn == conn {
 			targetIndex = i
 			break
 		}
@@ -135,7 +152,7 @@ func (e *Engine) RemoveSubscriber(topic string, conn net.Conn) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if targetIndex < len(e.subscribers[topic]) && e.subscribers[topic][targetIndex] == conn {
+	if targetIndex < len(e.subscribers[topic]) && e.subscribers[topic][targetIndex].conn == conn {
 		e.subscribers[topic] = append(e.subscribers[topic][:targetIndex], e.subscribers[topic][targetIndex+1:]...)
 	}
 

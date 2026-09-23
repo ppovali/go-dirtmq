@@ -125,8 +125,6 @@ func (e *Engine) Broadcast(topic string, payload []byte) {
 		return
 	}
 
-	log.Printf("Broadcasting message to %d subscribers on topic [%s]", len(subs), topic)
-
 	for _, sub := range subs {
 		frameCopy := make([]byte, len(binaryFrame))
 		copy(frameCopy, binaryFrame)

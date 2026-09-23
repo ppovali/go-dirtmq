@@ -2,16 +2,28 @@ package storage
 
 import (
 	"bytes"
+	"os"
 	"sync"
 	"testing"
 )
 
 func TestEngine_PublishAndGet(t *testing.T) {
-	engine := NewEngine()
+	tmpFile, err := os.CreateTemp("", "dirtmq-test-*.log")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	testWal, err := NewWAl(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failet to create wal: %v", err)
+	}
+	engine := NewEngine(testWal)
 	topic := "test-topic"
 	message := []byte("hello-dirt")
 
-	err := engine.Publish(topic, message)
+	err = engine.Publish(topic, message)
 	if err != nil {
 		t.Fatalf("Failed to publish message: %v", err)
 	}
@@ -31,7 +43,18 @@ func TestEngine_PublishAndGet(t *testing.T) {
 }
 
 func TestEngine_ConcurrentPublish(t *testing.T) {
-	engine := NewEngine()
+	tmpFile, err := os.CreateTemp("", "dirtmq-test-*.log")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	testWal, err := NewWAl(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failet to create wal: %v", err)
+	}
+	engine := NewEngine(testWal)
 	topic := "concurrent-topic"
 
 	var wg sync.WaitGroup

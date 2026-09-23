@@ -11,6 +11,7 @@ import (
 
 type Engine struct {
 	mu          sync.RWMutex
+	wal         *WAL
 	topics      map[string][][]byte
 	subscribers map[string][]*Subscriber
 }
@@ -20,10 +21,10 @@ type Subscriber struct {
 	queue chan []byte
 }
 
-func NewEngine() *Engine {
+func NewEngine(wal *WAL) *Engine {
 	return &Engine{
-		topics: make(map[string][][]byte),
-
+		wal:         wal,
+		topics:      make(map[string][][]byte),
 		subscribers: make(map[string][]*Subscriber),
 	}
 }
@@ -33,11 +34,29 @@ func (e *Engine) Publish(topic string, payload []byte) error {
 		return errors.New("topic name cannot be empty")
 	}
 
+	packet := &protocol.Packet{
+		Header: protocol.Header{
+			Version:   1,
+			Operation: protocol.OpPublish,
+		},
+		Topic:   topic,
+		Payload: payload,
+	}
+
+	binaryFrame, err := protocol.SerializePacket(packet)
+	if err != nil {
+		return err
+	}
+	err = e.wal.Append(binaryFrame)
+	if err != nil {
+		return err
+	}
+
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	e.topics[topic] = append(e.topics[topic], payload)
+	e.mu.Unlock()
 
+	protocol.BufferPool.Put(binaryFrame[:cap(binaryFrame)])
 	return nil
 }
 
@@ -47,9 +66,8 @@ func (e *Engine) GetMessages(topic string) ([][]byte, error) {
 	}
 
 	e.mu.RLock()
-	defer e.mu.RUnlock()
-
 	messages := e.topics[topic]
+	e.mu.RUnlock()
 
 	return messages, nil
 }
@@ -60,13 +78,12 @@ func (e *Engine) RegisterSubscriber(topic string, conn net.Conn) error {
 	}
 
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	sub := &Subscriber{
 		conn:  conn,
 		queue: make(chan []byte, 1000),
 	}
 	e.subscribers[topic] = append(e.subscribers[topic], sub)
+	e.mu.Unlock()
 
 	go func(s *Subscriber) {
 		for frame := range s.queue {
@@ -157,4 +174,10 @@ func (e *Engine) RemoveSubscriber(topic string, conn net.Conn) error {
 	}
 
 	return nil
+}
+
+func (e *Engine) RestoreMessageCache(topic string, payload []byte) {
+	e.mu.Lock()
+	e.topics[topic] = append(e.topics[topic], payload)
+	e.mu.Unlock()
 }

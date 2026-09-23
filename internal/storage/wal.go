@@ -1,8 +1,12 @@
 package storage
 
 import (
+	"bufio"
+	"io"
 	"os"
 	"sync"
+
+	"github.com/ppovali/go-dirtmq/internal/protocol"
 )
 
 type WAL struct {
@@ -33,6 +37,28 @@ func (w *WAL) Append(data []byte) error {
 	}
 
 	return nil
+}
+
+func (w *WAL) RecoverState() ([]protocol.Packet, error) {
+	readFile, err := os.Open(w.file.Name())
+	if err != nil {
+		return nil, err
+	}
+	defer readFile.Close()
+	var packets []protocol.Packet = nil
+
+	reader := bufio.NewReader(readFile)
+	for {
+		packet, err := protocol.DecodePacket(reader)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+		packets = append(packets, *packet)
+	}
+	return packets, nil
 }
 
 func (w *WAL) Close() error {

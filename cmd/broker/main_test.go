@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -10,7 +11,12 @@ import (
 )
 
 func TestBroker_EndToEndPipeline(t *testing.T) {
-	engine := storage.NewEngine()
+	tmpFile, err := os.CreateTemp("", "dirtmq-test-*.log")
+	if err != nil {
+		t.Fatalf("Failed to create tmpFile: %v", err)
+	}
+	testWal, _ := storage.NewWAl(tmpFile.Name())
+	engine := storage.NewEngine(testWal)
 	testAddr := "127.0.0.1:8085"
 
 	listener, err := net.Listen("tcp", testAddr)

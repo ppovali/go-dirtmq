@@ -20,7 +20,22 @@ func main() {
 
 	defer listener.Close()
 
-	brokerEngine := storage.NewEngine()
+	wal, err := storage.NewWAl("topics.log")
+	if err != nil {
+		log.Fatalf("Failed to initialize Write-Ahead Log: %v", err)
+	}
+	defer wal.Close()
+	brokerEngine := storage.NewEngine(wal)
+
+	recoveredPackets, err := wal.RecoverState()
+	if err != nil {
+		log.Fatalf("Failed to parse system recovery state log: %v", err)
+	}
+
+	for _, packet := range recoveredPackets {
+		brokerEngine.RestoreMessageCache(packet.Topic, packet.Payload)
+	}
+	log.Printf("State recovery complete: restored %d packets.", len(recoveredPackets))
 
 	for {
 		conn, err := listener.Accept()

@@ -34,9 +34,26 @@ docker compose up --build
 
 ---
 
+## Write-Ahead Log (WAL)
+To prevent data loss from system crashes or restarts, `go-DirtMQ` implements an append-only **Write-Ahead Log (WAL)**. Hard disk storage is treated as the primary source of truth, while RAM acts as a fast lookup cache layer.
+
+### The Persistence Pipeline
+When a message is published, the broker processes data in a strict, durable sequence **before** updating memory or broadcasting to subscribers:
+*   **Serialization:** Packs data into a strict binary network frame (`protocol.Packet`).
+*   **Disk Commit:** Appends raw binary bytes to the end of a continuous log file (`topics.log`).
+*   **Hardware Sync:** Invokes `w.file.Sync()` to bypass volatile OS caches and force an immediate physical hardware flash.
+*   **Memory Update:** Updates the in-memory map cache safely once the disk write is confirmed.
+
+### State Recovery on Startup
+When the broker reboots, it automatically restores its state **before** opening network ports:
+1.  Opens a temporary read-only stream to parse `topics.log` from byte zero.
+2.  Decodes binary frames sequentially using the core network parser (`protocol.DecodePacket`) until it hits an `io.EOF` signal.
+3.  Loads payloads directly into memory using a dedicated bootstrapper (`e.RestoreMessageCache`), rebuilding the exact in-memory map state without writing to the disk twice.
+
+---
+
 ## Engineering Roadmap (Future Milestones)
 
-*   [ ] Implement a Write-Ahead Log (WAL) for persistent disk storage.
+*   [x] Implement a Write-Ahead Log (WAL) for persistent disk storage.
 *   [ ] Integrate a Graceful Shutdown channel loop to flush active socket connections safely.
-*   [ ] Run execution profiling metrics to continuously optimize runtime memory usage and processing speed.
-*   [ ] Develop an internal asynchronous packet buffer queue pool.
+*   [x] Develop an internal asynchronous packet buffer queue pool.

@@ -1,5 +1,5 @@
 # go-dirtmq
-go-DirtMQ is a lightweigth message broker written entirely in *pure Go*.
+go-DirtMQ is a lightweight message broker written entirely in *pure Go*.
 
 ## Custom Binary Protocol Layout
 
@@ -19,8 +19,8 @@ The broker implements a custom, *self-design binary framing protocol* over TCP. 
 
 The system heavily utilizes Go's native synchronization primitives to guarantee processing speed and absolute memory safety under high multi-threaded load:
 
-*   **Insulated Concurrency Barriers:** Employs explicit read/write mutex locks (`sync.RWMutex`) to guarantee thread-safe operations over the internal in-memory maps cache across thousands of parallel connections.
-*   **Zero-Allocation Buffer Recycling (`sync.Pool`):** Integrates a global `sync.Pool` caching mechanism to reuse byte slices. This completely eliminates dynamic heap allocations during packet processing, protecting the server from Garbage Collector latency pauses.
+*   Employs explicit read/write mutex locks (`sync.RWMutex`) to guarantee thread-safe operations over the internal in-memory maps cache across thousands of parallel connections.
+*   Uses `sync.Pool` to reduce temporary buffer allocations during packet processing.
 
 ---
 

@@ -26,9 +26,12 @@ func (w *WAL) Append(data []byte) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	_, err := w.file.Write(data)
+	n, err := w.file.Write(data)
 	if err != nil {
 		return err
+	}
+	if n != len(data) {
+		return io.ErrShortWrite
 	}
 
 	err = w.file.Sync()

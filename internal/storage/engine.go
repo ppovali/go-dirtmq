@@ -47,6 +47,9 @@ func (e *Engine) Publish(topic string, payload []byte) error {
 	if err != nil {
 		return err
 	}
+
+	defer protocol.ReleaseBuffer(binaryFrame)
+
 	err = e.wal.Append(binaryFrame)
 	if err != nil {
 		return err
@@ -56,7 +59,6 @@ func (e *Engine) Publish(topic string, payload []byte) error {
 	e.topics[topic] = append(e.topics[topic], payload)
 	e.mu.Unlock()
 
-	protocol.BufferPool.Put(binaryFrame[:cap(binaryFrame)])
 	return nil
 }
 
@@ -136,7 +138,7 @@ func (e *Engine) Broadcast(topic string, payload []byte) {
 		}
 	}
 
-	protocol.BufferPool.Put(binaryFrame[:cap(binaryFrame)])
+	protocol.ReleaseBuffer(binaryFrame)
 }
 
 func (e *Engine) RemoveSubscriber(topic string, conn net.Conn) error {

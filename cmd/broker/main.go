@@ -91,7 +91,7 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 			return
 		}
 
-		log.Printf("Received packet: OpCode=%d | Topic=%s | Bytes=%d\n",
+		log.Printf("Received packet: OpCode=%s | Topic=%s | Bytes=%d\n",
 			packet.Header.Operation, packet.Topic, len(packet.Payload))
 
 		switch packet.Header.Operation {

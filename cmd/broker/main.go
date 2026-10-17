@@ -37,6 +37,8 @@ func main() {
 	}
 	log.Printf("State recovery complete: restored %d packets.", len(recoveredPackets))
 
+	wal.Start()
+
 	for {
 		conn, err := listener.Accept()
 

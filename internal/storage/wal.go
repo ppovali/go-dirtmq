@@ -5,13 +5,20 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/ppovali/go-dirtmq/internal/protocol"
 )
 
+const (
+	bufferSize = 65536 // 64KB buffer size for reading from the WAL file
+)
+
 type WAL struct {
-	file *os.File
-	mu   sync.Mutex
+	file   *os.File
+	writer *bufio.Writer
+	mu     sync.Mutex
+	cancel chan struct{}
 }
 
 func NewWAl(filepath string) (*WAL, error) {
@@ -19,14 +26,25 @@ func NewWAl(filepath string) (*WAL, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &WAL{file: file}, nil
+
+	wal := &WAL{
+		file:   file,
+		writer: bufio.NewWriterSize(file, bufferSize),
+		cancel: make(chan struct{}),
+	}
+
+	return wal, nil
+}
+
+func (w *WAL) Start() {
+	go w.syncLoop()
 }
 
 func (w *WAL) Append(data []byte) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	n, err := w.file.Write(data)
+	n, err := w.writer.Write(data)
 	if err != nil {
 		return err
 	}
@@ -34,12 +52,32 @@ func (w *WAL) Append(data []byte) error {
 		return io.ErrShortWrite
 	}
 
-	err = w.file.Sync()
-	if err != nil {
-		return err
+	if w.writer.Available() < 8192 {
+		if err := w.writer.Flush(); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func (w *WAL) syncLoop() {
+	ticker := time.NewTicker(2 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			w.mu.Lock()
+			if w.writer.Buffered() > 0 {
+				_ = w.writer.Flush()
+				_ = w.file.Sync()
+			}
+			w.mu.Unlock()
+		case <-w.cancel:
+			return
+		}
+	}
 }
 
 func (w *WAL) RecoverState() ([]protocol.Packet, error) {
@@ -65,9 +103,24 @@ func (w *WAL) RecoverState() ([]protocol.Packet, error) {
 }
 
 func (w *WAL) Close() error {
-	err := w.file.Close()
-	if err != nil {
-		return err
+	close(w.cancel)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	var err error
+
+	if flushErr := w.writer.Flush(); flushErr != nil {
+		err = flushErr
 	}
-	return nil
+
+	if syncErr := w.file.Sync(); syncErr != nil && err == nil {
+		err = syncErr
+	}
+
+	if closeErr := w.file.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
+
+	return err
 }

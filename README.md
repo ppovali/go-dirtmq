@@ -46,22 +46,56 @@ docker compose up --build
 ---
 
 ## Write-Ahead Log (WAL)
+
 To prevent data loss from system crashes or restarts, `go-DirtMQ` implements an append-only **Write-Ahead Log (WAL)**. Hard disk storage is treated as the primary source of truth, while RAM acts as a fast lookup cache layer.
 
-### The Persistence Pipeline
-When a message is published, the broker processes data in a strict, durable sequence **before** updating memory or broadcasting to subscribers:
-*   **Serialization:** Packs data into a strict binary network frame (`protocol.Packet`).
-*   **Disk Commit:** Appends raw binary bytes to the end of a continuous log file (`topics.log`).
-*   **Hardware Sync:** Invokes `w.file.Sync()` to bypass volatile OS caches and force an immediate physical hardware flash.
-*   **Memory Update:** Updates the in-memory map cache safely once the disk write is confirmed.
+#### The Persistence Pipeline
 
-### State Recovery on Startup
-When the broker reboots, it automatically restores its state **before** opening network ports:
-1.  Opens a temporary read-only stream to parse `topics.log` from byte zero.
-2.  Decodes binary frames sequentially using the core network parser (`protocol.DecodePacket`) until it hits an `io.EOF` signal.
-3.  Loads payloads directly into memory using a dedicated bootstrapper (`e.RestoreMessageCache`), rebuilding the exact in-memory map state without writing to the disk twice.
+When a message is published, the broker processes data in a durable, highly optimized sequence **before** updating memory or broadcasting to subscribers:
+
+1. **Serialization:** Packs data into a strict binary network frame (`protocol.Packet`).
+2. **Buffered Memory Write:** Appends raw binary bytes into an in-memory `bufio.Writer` buffer (configured at 64 KB). This step executes at RAM speeds, preventing the broker from being choked by individual disk I/O operations.
+3. **Asynchronous Group Commit:** A dedicated background worker pulls accumulated data from the buffer every **2 milliseconds** (or sooner if the buffer fills up) and triggers a synchronized two-stage hardware flush:
+   * `writer.Flush()` pushes data from Go user space to the OS Page Cache.
+   * `file.Sync()` executes an explicit hardware `fsync` call to bypass all volatile caches and commit data directly to physical storage.
+4. **Memory Update:** Once the disk write is confirmed, the broker updates its in-memory map cache safely under mutual exclusion (`sync.Mutex`).
+
+#### State Recovery on Startup
+
+When the broker reboots, it follows a strict sequence to automatically restore its state **before** opening network ports or accepting new connections:
+
+1. **Exclusive Read Stream:** Opens a temporary read-only stream to parse `topics.log` from byte zero, completely isolated from the background sync worker.
+2. **Sequential Decoding:** Decodes binary frames sequentially using the core network parser (`protocol.DecodePacket`) until it encounters an `io.EOF` signal.
+3. **Cache Bootstrapping:** Loads recovered payloads directly into memory using a dedicated bootstrapper (`e.RestoreMessageCache`), rebuilding the exact in-memory map state without executing redundant disk operations.
 
 ---
+
+## Engineering Insights: Optimizing WAL Performance
+
+During the development of the Write-Ahead Log (WAL), a crucial architectural lesson was learned regarding disk I/O and performance optimization. 
+
+### The Bottleneck: Individual Fsyncs
+Originally, the WAL triggered an explicit hardware flush (`w.file.Sync()`) on *every single incoming message* to guarantee immediate durability. In benchmarks with a 4-byte payload, this achieved **~300,000 QPS**, but completely choked the hardware:
+* The disk write throughput reached **~12 MB/s**.
+* Because operating systems and physical drives write data in fixed block pages (usually 4 KB), writing small 4-byte messages sequentially caused massive **Write Amplification**. 
+* The OS spent more CPU cycles on system call context switches (`syscall write`) and rewriting metadata than on handling message streams.
+
+### The Solution: Asynchronous Group Commit
+By introducing a `bufio.Writer` (64 KB memory buffer) paired with a background 2ms `syncLoop` ticker, the architecture shifted to a **Group Commit** model. Messages are now packed tightly in RAM and flushed in optimal monolithic chunks.
+
+### End-to-End Stress Testing (Ingestion Throughput)
+
+To evaluate the real-world performance of the networking and storage layers combined, an end-to-end stress test was executed. The test spawned **1,000 concurrent TCP workers**, each establishing a separate socket connection and flooding the broker with 500 messages over a custom binary layout (4-byte payload).
+
+| Architecture Mode | Network & Storage Pipeline | Real-World Throughput | Disk I/O Utilization |
+| :--- | :--- | :---: | :---: |
+| **Synchronous WAL** | Strict `fsync` on every packet | **~300,000 QPS** | ~12 MB/s *(heavy write amplification)* |
+| **Optimized Group Commit** | `bufio.Writer` (64KB) + 2ms Async Sync Loop | **~600,000 QPS** | ~2.4 MB/s *(zero hardware waste)* |
+
+*Note: Benchmarks were executed on a local development machine via the loopback interface (`localhost:8080`), measuring pure write-path (Ingestion) throughput under heavy multi-threaded connection load.*
+
+---
+
 
 ## Engineering Roadmap (Future Milestones)
 

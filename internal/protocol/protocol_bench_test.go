@@ -23,7 +23,7 @@ func BenchmarkSerializePacket(b *testing.B) {
 	}
 }
 
-func BenchmarkDecodePacker(b *testing.B) {
+func BenchmarkDecodePacket(b *testing.B) {
 	dummyPacket := &Packet{
 		Header: Header{
 			Version:   1,
@@ -35,9 +35,11 @@ func BenchmarkDecodePacker(b *testing.B) {
 
 	binaryFrame, _ := SerializePacket(dummyPacket)
 
+	readerObject := bytes.NewReader(binaryFrame)
+
 	b.ResetTimer()
 	for b.Loop() {
-		readerObject := bytes.NewReader(binaryFrame)
+		readerObject.Reset(binaryFrame)
 		_, _ = DecodePacket(readerObject)
 	}
 }

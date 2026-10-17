@@ -13,6 +13,17 @@ The broker implements a custom, *self-design binary framing protocol* over TCP. 
 
 > **Data-Agnostic Design:** Because the protocol transmits raw binary memory streams (`[]byte`), the core engine is completely data-agnostic. It can route any serialized data format, including plain text, heavy JSON structures, Protocol Buffers (Protobuf), or raw media asset data blocks.
 
+### Benchmarks
+
+Benchmarks were run on a local development machine using Go benchmarks.
+
+| Benchmark | ns/op | B/op | allocs/op |
+|---|---:|---:|---:|
+| SerializePacket | 27.3 | 24 | 1 |
+| DecodePacket | 117.8 | 216 | 6 |
+
+The benchmarks measure protocol serialization and deserialization for a single test packet and should not be interpreted as end-to-end broker throughput.
+
 ---
 
 ## Concurrency & Memory Core Optimizations

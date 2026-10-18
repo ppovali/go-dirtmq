@@ -9,6 +9,7 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o broker-bin cmd/broker/main.go
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o client-bin cmd/cli-client/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o stress-bin cmd/cli-stress/main.go
 
 FROM scratch AS broker
 
@@ -24,3 +25,10 @@ FROM scratch AS client
 COPY --from=builder /app/client-bin /client
 
 ENTRYPOINT [ "/client" ]
+
+
+FROM scratch AS stress
+
+COPY --from=builder /app/stress-bin /stress
+
+ENTRYPOINT [ "/stress" ]

@@ -9,6 +9,8 @@ services:
       - "8080:8080"
     networks:
       - dirtmq-net
+    environment:
+      - DIRTMQ_BROKER_ADDR=0.0.0.0:8080
   
   subscriber-alpha:
     build:
@@ -25,6 +27,17 @@ services:
     build:
       context: .
       target: client
+    depends_on:
+      - broker-server
+    environment:
+      - DIRTMQ_BROKER_ADDR=broker-server:8080
+    networks:
+      - dirtmq-net
+
+  stress-test:
+    build:
+      context: .
+      target: stress
     depends_on:
       - broker-server
     environment:

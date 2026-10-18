@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"time"
 
 	"github.com/ppovali/go-dirtmq/internal/protocol"
@@ -12,24 +13,29 @@ import (
 )
 
 func main() {
-	listener, err := net.Listen("tcp", ":8080")
+	listenerAddr := os.Getenv("DIRTMQ_BROKER_ADDR")
+	if listenerAddr == "" {
+		listenerAddr = "127.0.0.1:8080"
+	}
+
+	listener, err := net.Listen("tcp", listenerAddr)
 
 	if err != nil {
-		log.Fatal("Error listening:", err)
+		log.Fatal("[ERROR] Error listening:", err)
 	}
 
 	defer listener.Close()
 
 	wal, err := storage.NewWAl("topics.log")
 	if err != nil {
-		log.Fatalf("Failed to initialize Write-Ahead Log: %v", err)
+		log.Fatalf("[ERROR] Failed to initialize Write-Ahead Log: %v", err)
 	}
 	defer wal.Close()
 	brokerEngine := storage.NewEngine(wal)
 
 	recoveredPackets, err := wal.RecoverState()
 	if err != nil {
-		log.Fatalf("Failed to parse system recovery state log: %v", err)
+		log.Fatalf("[ERROR] Failed to parse system recovery state log: %v", err)
 	}
 
 	for _, packet := range recoveredPackets {
@@ -43,7 +49,7 @@ func main() {
 		conn, err := listener.Accept()
 
 		if err != nil {
-			log.Println("Error accepting connection:", err)
+			log.Println("[ERROR] Error accepting connection:", err)
 			continue
 		}
 
@@ -72,7 +78,7 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 	for {
 		err := conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		if err != nil {
-			log.Println("Failed to set deadline:", err)
+			log.Println("[ERROR] Failed to set deadline:", err)
 			return
 		}
 
@@ -87,33 +93,33 @@ func handleConnection(conn net.Conn, engine *storage.Engine) {
 
 			// Check if the client has closed the connection
 			if err != io.EOF {
-				log.Println("Error reading message:", err)
+				log.Println("[ERROR]Error reading message:", err)
 			}
 
 			return
 		}
 
-		log.Printf("Received packet: OpCode=%s | Topic=%s | Bytes=%d\n",
-			packet.Header.Operation, packet.Topic, len(packet.Payload))
+		// log.Printf("Received packet: OpCode=%s | Topic=%s | Bytes=%d\n",
+		// 	packet.Header.Operation, packet.Topic, len(packet.Payload))
 
 		switch packet.Header.Operation {
 		case protocol.OpPublish:
 			err := engine.Publish(packet.Topic, packet.Payload)
 			if err != nil {
-				log.Println("Storage engine save error:", err)
+				log.Println("[ERROR] Storage engine save error:", err)
 				return
 			}
-			log.Printf("[PUBLISH] saving message to topic: %s", packet.Topic)
+			// log.Printf("[%s] saving message to topic: %s", packet.Header.Operation, packet.Topic)
 			engine.Broadcast(packet.Topic, packet.Payload)
 
 		case protocol.OpSubscribe:
 			err := engine.RegisterSubscriber(packet.Topic, conn)
 			if err != nil {
-				log.Println("Storage subscribe error: ", err)
+				log.Println("[ERROR] Storage subscribe error: ", err)
 				return
 			}
 			subscribedTopics = append(subscribedTopics, packet.Topic)
-			log.Printf("[SUBSCRIBE] microservice '%s' subscribed to topic: %s", conn.RemoteAddr(), packet.Topic)
+			log.Printf("[%s] microservice '%s' subscribed to topic: %s", packet.Header.Operation, conn.RemoteAddr(), packet.Topic)
 		}
 	}
 }

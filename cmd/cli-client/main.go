@@ -10,22 +10,22 @@ import (
 func main() {
 	brokerAddr := os.Getenv("DIRTMQ_BROKER_ADDR")
 	if brokerAddr == "" {
-		brokerAddr = "localhost:8080"
+		brokerAddr = "127.0.0.1:8080"
 	}
 
 	client, err := client.Connect(brokerAddr)
 	if err != nil {
-		log.Fatalf("Failed to connect to broker %s: %v", brokerAddr, err)
+		log.Fatalf("[ERROR] Failed to connect to broker %s: %v", brokerAddr, err)
 	}
 
 	topic := "orders"
 	messages, err := client.Subscribe(topic)
 	if err != nil {
-		log.Fatalf("Failed to subscribe topic [%s]: %v", topic, err)
+		log.Fatalf("[ERROR] Failed to subscribe topic [%s]: %v", topic, err)
 	}
 
 	for packet := range messages {
 		payload := string(packet.Payload)
-		log.Printf("Recieved a new payload: %s", payload)
+		log.Printf("[INFO] Received a new payload: %s", payload)
 	}
 }

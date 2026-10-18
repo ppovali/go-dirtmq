@@ -93,7 +93,6 @@ To capture the definitive peak performance characteristics, the end-to-end stres
 | **Average Throughput (QPS)** | **~906,000 QPS** | **~54,500 QPS** |
 | **Average Disk I/O Speed** | **~20.7 MB/s** | **~214.1 MB/s** |
 | **Network Concurrency** | 100–500 Active Sockets | 40 Active Sockets |
-| **Data Durability** | **100% Confirmed Write** | **100% Confirmed Write** |
 
 *Benchmark Specifications: 4-byte streams evaluated at 100 concurrent threads with a 15μs adaptive connection sleep. 4KB payloads generated using cryptographically secure random bytes (`crypto/rand`) to eliminate OS compression cache falsification.*
 

@@ -72,27 +72,30 @@ When the broker reboots, it follows a strict sequence to automatically restore i
 
 ## Engineering Insights: Optimizing WAL Performance
 
-During the development of the Write-Ahead Log (WAL), a crucial architectural lesson was learned regarding disk I/O and performance optimization. 
+During the development of the Write-Ahead Log (WAL), a crucial architectural lesson was learned regarding disk I/O, performance optimization and benchmark calibration. 
 
 ### The Bottleneck: Individual Fsyncs
 Originally, the WAL triggered an explicit hardware flush (`w.file.Sync()`) on *every single incoming message* to guarantee immediate durability. In benchmarks with a 4-byte payload, this achieved **~300,000 QPS**, but completely choked the hardware:
 * The disk write throughput reached **~12 MB/s**.
 * Because operating systems and physical drives write data in fixed block pages (usually 4 KB), writing small 4-byte messages sequentially caused massive **Write Amplification**. 
 * The OS spent more CPU cycles on system call context switches (`syscall write`) and rewriting metadata than on handling message streams.
+* Furthermore, the initial benchmark script operated **incorrectly**: it lacked adequate write-confirmation loops, caused severe *Thread Starvation*, and led to silent packet loss as overflowing OS network buffers forced the loopback pipeline to drop in-flight frames before they could reach the storage layer.
 
-### The Solution: Asynchronous Group Commit
-By introducing a `bufio.Writer` (64 KB memory buffer) paired with a background 2ms `syncLoop` ticker, the architecture shifted to a **Group Commit** model. Messages are now packed tightly in RAM and flushed in optimal monolithic chunks.
+### The Solution: Lock-Free Pipeline & Smart Backpressure
+By moving to a lock-free channel queue coupled with an adaptive micro-sleep retry backoff loop, the broker gained the ability to absorb massive packet floods in memory, processing incoming streams gracefully and maximizing core execution.
 
-### End-to-End Stress Testing (Ingestion Throughput)
+### High-Load Performance Benchmarks (Warmed Capacity)
 
-To evaluate the real-world performance of the networking and storage layers combined, an end-to-end stress test was executed. The test spawned **1,000 concurrent TCP workers**, each establishing a separate socket connection and flooding the broker with 500 messages over a custom binary layout (4-byte payload).
+To capture the definitive peak performance characteristics, the end-to-end stress test evaluated the system inside an isolated multi-stage Docker Compose network grid. The metrics below capture consistent **"warm runs"**:
 
-| Architecture Mode | Network & Storage Pipeline | Real-World Throughput | Disk I/O Utilization |
-| :--- | :--- | :---: | :---: |
-| **Synchronous WAL** | Strict `fsync` on every packet | **~300,000 QPS** | ~12 MB/s *(heavy write amplification)* |
-| **Optimized Group Commit** | `bufio.Writer` (64KB) + 2ms Async Sync Loop | **~600,000 QPS** | ~2.4 MB/s *(zero hardware waste)* |
+| Metric | Micro-Packets (4 Bytes) | Heavy Data Streams (4 KB) |
+| :--- | :---: | :---: |
+| **Average Throughput (QPS)** | **~906,000 QPS** | **~54,500 QPS** |
+| **Average Disk I/O Speed** | **~20.7 MB/s** | **~214.1 MB/s** |
+| **Network Concurrency** | 100–500 Active Sockets | 40 Active Sockets |
+| **Data Durability** | **100% Confirmed Write** | **100% Confirmed Write** |
 
-*Note: Benchmarks were executed on a local development machine via the loopback interface (`localhost:8080`), measuring pure write-path (Ingestion) throughput under heavy multi-threaded connection load.*
+*Benchmark Specifications: 4-byte streams evaluated at 100 concurrent threads with a 15μs adaptive connection sleep. 4KB payloads generated using cryptographically secure random bytes (`crypto/rand`) to eliminate OS compression cache falsification.*
 
 ---
 

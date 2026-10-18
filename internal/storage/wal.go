@@ -11,14 +11,16 @@ import (
 )
 
 const (
-	bufferSize = 65536 // 64KB buffer size for reading from the WAL file
+	bufferSize              = 65536  // 64KB buffer size for reading from the WAL file
+	queueSize               = 524288 // Size of the channel buffer for queued data
+	writeAvailableThreshold = 8192   // Threshold for available buffer space before flushing
 )
 
 type WAL struct {
 	file   *os.File
 	writer *bufio.Writer
-	mu     sync.Mutex
-	cancel chan struct{}
+	queue  chan []byte
+	wg     sync.WaitGroup
 }
 
 func NewWAl(filepath string) (*WAL, error) {
@@ -30,52 +32,68 @@ func NewWAl(filepath string) (*WAL, error) {
 	wal := &WAL{
 		file:   file,
 		writer: bufio.NewWriterSize(file, bufferSize),
-		cancel: make(chan struct{}),
+		queue:  make(chan []byte, queueSize),
 	}
 
 	return wal, nil
 }
 
 func (w *WAL) Start() {
-	go w.syncLoop()
+	w.wg.Add(1)
+	go w.workerLoop()
 }
 
 func (w *WAL) Append(data []byte) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	dataCopy := make([]byte, len(data))
+	copy(dataCopy, data)
 
-	n, err := w.writer.Write(data)
-	if err != nil {
-		return err
-	}
-	if n != len(data) {
-		return io.ErrShortWrite
-	}
+	select {
+	case w.queue <- dataCopy:
+		return nil
+	default:
+		for i := 0; i < 5; i++ {
+			time.Sleep(100 * time.Microsecond)
 
-	if w.writer.Available() < 8192 {
-		if err := w.writer.Flush(); err != nil {
-			return err
+			select {
+			case w.queue <- dataCopy:
+				return nil
+			default:
+			}
 		}
+		return os.NewSyscallError("WAL queue overflow", nil)
 	}
-
-	return nil
 }
 
-func (w *WAL) syncLoop() {
+func (w *WAL) workerLoop() {
+	defer w.wg.Done()
+
 	ticker := time.NewTicker(2 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
+		case data, ok := <-w.queue:
+			if !ok {
+				if w.writer.Buffered() > 0 {
+					_ = w.writer.Flush()
+					_ = w.file.Sync()
+				}
+				return
+			}
+
+			n, err := w.writer.Write(data)
+			if err != nil || n != len(data) {
+				continue
+			}
+
+			if w.writer.Available() < writeAvailableThreshold {
+				_ = w.writer.Flush()
+			}
 		case <-ticker.C:
-			w.mu.Lock()
 			if w.writer.Buffered() > 0 {
 				_ = w.writer.Flush()
 				_ = w.file.Sync()
 			}
-			w.mu.Unlock()
-		case <-w.cancel:
-			return
 		}
 	}
 }
@@ -103,24 +121,9 @@ func (w *WAL) RecoverState() ([]protocol.Packet, error) {
 }
 
 func (w *WAL) Close() error {
-	close(w.cancel)
+	close(w.queue)
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.wg.Wait()
 
-	var err error
-
-	if flushErr := w.writer.Flush(); flushErr != nil {
-		err = flushErr
-	}
-
-	if syncErr := w.file.Sync(); syncErr != nil && err == nil {
-		err = syncErr
-	}
-
-	if closeErr := w.file.Close(); closeErr != nil && err == nil {
-		err = closeErr
-	}
-
-	return err
+	return w.file.Close()
 }

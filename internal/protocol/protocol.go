@@ -21,7 +21,7 @@ const (
 
 const (
 	HeaderSize    = 8 // Version (1 byte) + Operation (1 byte) + TopicLength (2 bytes) + PayloadLength (4 bytes)
-	MaxPacketSize = 4096
+	MaxPacketSize = 8192
 	MaxBodySize   = MaxPacketSize - HeaderSize
 	MaxTopicSize  = 1024
 )
